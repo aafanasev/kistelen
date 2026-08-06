@@ -1,0 +1,18 @@
+[package]
+name = "kistelen"
+description = "A derive macro that keeps sensitive struct fields out of Debug output"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../README.md"
+
+[dependencies]
+kistelen-macros = { version = "=0.1.0", path = "../kistelen-macros" }
+
+[dev-dependencies]
+trybuild = "1.0"
