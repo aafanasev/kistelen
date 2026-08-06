@@ -1,5 +1,0 @@
-error: Secret cannot be derived for enums yet
- --> tests/ui/enum.rs:4:1
-  |
-4 | enum Credential {
-  | ^^^^

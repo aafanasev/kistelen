@@ -59,4 +59,20 @@ pub mod __private {
             formatter.write_str(crate::MASK)
         }
     }
+
+    /// Stands in for a secret [`Option`], masking the contained value while
+    /// leaving the `Some`/`None` distinction visible.
+    ///
+    /// Whether a value is set is usually structural rather than sensitive —
+    /// hiding it makes output harder to read without protecting anything.
+    pub struct MaskedOption<'a, T>(pub &'a Option<T>);
+
+    impl<T> core::fmt::Debug for MaskedOption<'_, T> {
+        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self.0 {
+                Some(_) => formatter.debug_tuple("Some").field(&Mask).finish(),
+                None => formatter.write_str("None"),
+            }
+        }
+    }
 }

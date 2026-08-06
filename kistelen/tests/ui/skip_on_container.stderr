@@ -1,0 +1,5 @@
+error: `skip` applies to fields, not to a struct, enum or variant
+ --> tests/ui/skip_on_container.rs:4:1
+  |
+4 | #[secret(skip)]
+  | ^

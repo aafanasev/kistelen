@@ -1,0 +1,5 @@
+error: Secret cannot be derived for unions, whose fields cannot be read safely
+ --> tests/ui/union.rs:4:7
+  |
+4 | union Raw {
+  |       ^^^

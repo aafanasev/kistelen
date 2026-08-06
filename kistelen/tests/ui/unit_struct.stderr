@@ -1,5 +1,0 @@
-error: Secret cannot be derived for unit structs, which have no fields to mask
- --> tests/ui/unit_struct.rs:4:1
-  |
-4 | struct Anonymous;
-  | ^^^^^^

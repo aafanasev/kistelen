@@ -49,6 +49,55 @@ seeing `#[secret]` disappear from a diff sees a deliberate act.
 The mask is printed unquoted, so masked output can never be confused with a
 string whose contents happen to look like a mask.
 
+## Masking a whole type
+
+When everything a type holds is sensitive, annotate the type rather than each
+field. `#[secret(skip)]` exempts anything that is not:
+
+```rust
+#[derive(Secret)]
+#[secret]
+struct Session {
+    #[secret(skip)]
+    id: u32,
+    token: String,
+    refresh_token: String,
+}
+```
+
+```text
+Session { id: 7, token: ■■■, refresh_token: ■■■ }
+```
+
+Field names are kept. They are rarely the sensitive part, and they carry the
+structure that made the value worth logging in the first place.
+
+The same applies to enums, on the type or on a single variant:
+
+```rust
+#[derive(Secret)]
+enum Credential {
+    Anonymous,
+    Token(#[secret] String),
+    #[secret]
+    Password { login: String, value: String },
+}
+```
+
+## Options
+
+A masked `Option` keeps its shape, because whether a value is set is usually
+structural rather than sensitive:
+
+```text
+Account { password: Some(■■■) }
+Account { password: None }
+```
+
+This is recognised by how the type is written. An alias for `Option<T>` cannot
+be seen through at compile time, so it is masked whole — the safe reading of a
+type the macro cannot inspect.
+
 ## Installation
 
 ```toml
@@ -71,13 +120,18 @@ anything implementing it also gets `ToString`, so masking there would make
 
 Early. Currently supported:
 
-- structs with named fields, including generic ones
-- `#[secret]` on individual fields
-- a fixed mask string
+- structs, tuple structs, unit structs and enums, including generic ones
+- `#[secret]` on a field, a type, or a single enum variant
+- `#[secret(skip)]` to exempt a field from a wider rule
+- `Option` masked through its `Some`
+- both `{:?}` and `{:#?}`
 
-Planned: tuple structs and enums, struct-level annotation, opt-out, custom and
-partial masks, regex-driven masking. Unsupported shapes fail at compile time
-with an explanatory message rather than silently doing nothing.
+Planned: custom mask strings, fixed-width masks that hide length, partial
+masking, regex-driven masking.
+
+Misuse is a compile error with an explanatory message rather than something
+that silently does nothing — `skip` on a field no rule covers is rejected,
+since it reads as protection that is not there.
 
 ## Related
 

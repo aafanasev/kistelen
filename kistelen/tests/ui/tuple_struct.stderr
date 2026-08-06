@@ -1,5 +1,0 @@
-error: Secret cannot be derived for tuple structs yet
- --> tests/ui/tuple_struct.rs:4:1
-  |
-4 | struct Password(String);
-  | ^^^^^^
