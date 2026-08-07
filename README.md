@@ -123,6 +123,43 @@ length would disclose that too.
 `partial` reads the value, so the field must implement `Display`. The other
 modes never look at it, and work on any type.
 
+## Patterns
+
+For shapes the modes above cannot express, `search` and `replacement` rewrite
+the value. This needs the `regex` feature, which is off by default because a
+regex engine is a large dependency to impose on users who only need a constant
+mask:
+
+```toml
+kistelen = { version = "0.1", features = ["regex"] }
+```
+
+```rust
+#[secret(search = r"([0-9]{4})([0-9]{8})([0-9]{4})", replacement = "****-****-****-$3")]
+number: String,
+```
+
+```text
+Card { number: ****-****-****-3456 }
+```
+
+Two rules keep a pattern from leaking what it was meant to hide:
+
+- **The pattern must match the value end to end.** A partial match would leave
+  everything outside it untouched, so a pattern written for one shape of value
+  would print a different shape verbatim. Anything not fully matched is masked
+  instead.
+- **`$0` is rejected**, since it stands for the whole match and would print
+  back the value the pattern had just matched.
+
+Patterns are parsed when the macro expands, so an unusable one is a compile
+error rather than a surprise on the first line of output that needs it. Each
+is compiled at most once and reused.
+
+Neither rule can catch a pattern that is simply too generous — a capture group
+spanning the whole value will be substituted faithfully. Deciding what is safe
+to expose remains yours.
+
 ## Options
 
 A masked `Option` keeps its shape, because whether a value is set is usually
@@ -166,7 +203,7 @@ Early. Currently supported:
 - both `{:?}` and `{:#?}`
 - `with`, `fixed` and `partial` masking
 
-Planned: regex-driven masking.
+Regex masking is available behind the `regex` feature.
 
 Misuse is a compile error with an explanatory message rather than something
 that silently does nothing — `skip` on a field no rule covers is rejected,

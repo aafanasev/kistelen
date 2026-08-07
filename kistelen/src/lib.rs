@@ -143,6 +143,96 @@ pub mod __private {
         }
     }
 
+    /// A pattern compiled at most once, on the first line of output that
+    /// needs it.
+    #[cfg(feature = "regex")]
+    pub struct PatternCache(std::sync::OnceLock<Option<regex::Regex>>);
+
+    #[cfg(feature = "regex")]
+    impl PatternCache {
+        #[allow(clippy::new_without_default)]
+        pub const fn new() -> Self {
+            Self(std::sync::OnceLock::new())
+        }
+
+        /// The compiled pattern, or `None` if it could not be compiled.
+        ///
+        /// Patterns are checked at expansion time, so failure here should be
+        /// unreachable. It is still handled rather than unwrapped: a panic
+        /// while formatting would turn a log line into an outage.
+        fn get(&self, pattern: &str) -> Option<&regex::Regex> {
+            self.0
+                .get_or_init(|| regex::Regex::new(pattern).ok())
+                .as_ref()
+        }
+    }
+
+    /// The value rewritten by a pattern, from `search` and `replacement`.
+    #[cfg(feature = "regex")]
+    pub struct Replaced<'a, T>(
+        pub &'a T,
+        pub &'static PatternCache,
+        pub &'static str,
+        pub &'static str,
+    );
+
+    #[cfg(feature = "regex")]
+    impl<T: Display> Debug for Replaced<'_, T> {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> Result {
+            formatter.write_str(&replace(&self.0.to_string(), self.1, self.2, self.3))
+        }
+    }
+
+    /// A rewritten [`Option`], which must reach the contained value.
+    #[cfg(feature = "regex")]
+    pub struct ReplacedOption<'a, T>(
+        pub &'a Option<T>,
+        pub &'static PatternCache,
+        pub &'static str,
+        pub &'static str,
+    );
+
+    #[cfg(feature = "regex")]
+    impl<T: Display> Debug for ReplacedOption<'_, T> {
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> Result {
+            match self.0 {
+                Some(value) => formatter
+                    .debug_tuple("Some")
+                    .field(&Replaced(value, self.1, self.2, self.3))
+                    .finish(),
+                None => formatter.write_str("None"),
+            }
+        }
+    }
+
+    /// Applies a pattern to `value`, falling back to the mask.
+    ///
+    /// The pattern must match the value from end to end. A partial match would
+    /// leave everything outside it untouched, so a pattern written for one
+    /// shape of value would print a different shape verbatim — the failure
+    /// would be silent and would look like the rule was working.
+    #[cfg(feature = "regex")]
+    fn replace(
+        value: &str,
+        cache: &'static PatternCache,
+        pattern: &str,
+        replacement: &str,
+    ) -> String {
+        let Some(expression) = cache.get(pattern) else {
+            return crate::MASK.to_string();
+        };
+
+        let Some(matched) = expression.find(value) else {
+            return crate::MASK.to_string();
+        };
+
+        if matched.start() != 0 || matched.end() != value.len() {
+            return crate::MASK.to_string();
+        }
+
+        expression.replace(value, replacement).into_owned()
+    }
+
     /// Masks the middle of `value`, exposing a little of each end.
     ///
     /// Counts characters rather than bytes, so multi-byte text is neither

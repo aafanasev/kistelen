@@ -26,15 +26,21 @@ pub(crate) enum Mode {
     Fixed { count: usize, character: char },
     /// Leading and trailing characters exposed, the middle masked.
     Partial { character: char },
+    /// The value rewritten by a pattern, for shapes the other modes cannot
+    /// express.
+    Replace {
+        pattern: String,
+        replacement: String,
+    },
 }
 
 impl Mode {
     /// Whether rendering needs to read the value.
     ///
-    /// Only partial masking does; the rest are constants, which is what lets
-    /// a field of any type be masked without requiring it to be printable.
+    /// Constant masks do not, which is what lets a field of any type be
+    /// masked without requiring it to be printable.
     pub(crate) fn reads_value(&self) -> bool {
-        matches!(self, Mode::Partial { .. })
+        matches!(self, Mode::Partial { .. } | Mode::Replace { .. })
     }
 }
 
@@ -44,6 +50,8 @@ pub(crate) struct Secret {
     with: Option<With>,
     fixed: Option<usize>,
     partial: bool,
+    search: Option<String>,
+    replacement: Option<String>,
     /// Span of the attribute, for reporting errors against the right tokens.
     pub(crate) span: Span,
 }
@@ -54,6 +62,10 @@ impl Secret {
     /// Options that cannot both apply are rejected rather than silently
     /// ordered, since either could reasonably have been meant.
     pub(crate) fn mode(&self) -> Result<Mode> {
+        if let Some(mode) = self.replace_mode()? {
+            return Ok(mode);
+        }
+
         if self.fixed.is_some() && self.partial {
             return Err(Error::new(
                 self.span,
@@ -81,6 +93,38 @@ impl Secret {
         }
     }
 
+    /// Resolves `search` and `replacement` into a replacing mode, if given.
+    ///
+    /// Both are required together: a pattern with nothing to put in its place,
+    /// or a replacement with nothing to match, is a half-written rule rather
+    /// than a usable one.
+    fn replace_mode(&self) -> Result<Option<Mode>> {
+        let (pattern, replacement) = match (&self.search, &self.replacement) {
+            (None, None) => return Ok(None),
+            (Some(pattern), Some(replacement)) => (pattern, replacement),
+            (Some(_), None) => {
+                return Err(Error::new(self.span, "`search` requires `replacement`"));
+            }
+            (None, Some(_)) => {
+                return Err(Error::new(self.span, "`replacement` requires `search`"));
+            }
+        };
+
+        if self.fixed.is_some() || self.partial || self.with.is_some() {
+            return Err(Error::new(
+                self.span,
+                "`search` and `replacement` decide the whole output, so they cannot be combined with `with`, `fixed` or `partial`",
+            ));
+        }
+
+        validate_pattern(pattern, replacement, self.span)?;
+
+        Ok(Some(Mode::Replace {
+            pattern: pattern.clone(),
+            replacement: replacement.clone(),
+        }))
+    }
+
     /// The mask character for modes that repeat one.
     ///
     /// A multi-character `with` has no meaning when a count decides the
@@ -102,6 +146,37 @@ impl Secret {
             None => Ok(crate::DEFAULT_MASK_CHARACTER),
         }
     }
+}
+
+/// Rejects patterns that cannot work, at expansion time rather than on the
+/// first line of output that needs them.
+#[cfg(feature = "regex")]
+fn validate_pattern(pattern: &str, replacement: &str, span: Span) -> Result<()> {
+    if let Err(error) = regex_syntax::Parser::new().parse(pattern) {
+        return Err(Error::new(
+            span,
+            format!("invalid `search` pattern: {error}"),
+        ));
+    }
+
+    // `$0` and `${0}` stand for the whole match, so a replacement containing
+    // one would print back the value the pattern just matched.
+    if replacement.contains("$0") || replacement.contains("${0}") {
+        return Err(Error::new(
+            span,
+            "`replacement` must not contain `$0`, which would restore the whole matched value",
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(feature = "regex"))]
+fn validate_pattern(_pattern: &str, _replacement: &str, span: Span) -> Result<()> {
+    Err(Error::new(
+        span,
+        "`search` and `replacement` need the `regex` feature: kistelen = { version = \"0.1\", features = [\"regex\"] }",
+    ))
 }
 
 /// Finds and parses the `#[secret]` attribute in `attrs`, if present.
@@ -132,6 +207,8 @@ fn parse(attr: &Attribute) -> Result<Secret> {
         with: None,
         fixed: None,
         partial: false,
+        search: None,
+        replacement: None,
         span: attr.span(),
     };
 
@@ -188,10 +265,37 @@ fn parse(attr: &Attribute) -> Result<Secret> {
             return Ok(());
         }
 
-        Err(meta.error("unrecognised option, expected `skip`, `with`, `fixed` or `partial`"))
+        for (name, target) in [
+            ("search", &mut secret.search),
+            ("replacement", &mut secret.replacement),
+        ] {
+            if meta.path.is_ident(name) {
+                *target = Some(match meta.value()?.parse::<Lit>()? {
+                    Lit::Str(text) => text.value(),
+                    other => {
+                        return Err(Error::new(
+                            other.span(),
+                            format!("`{name}` expects a string literal"),
+                        ));
+                    }
+                });
+
+                return Ok(());
+            }
+        }
+
+        Err(meta.error(
+            "unrecognised option, expected `skip`, `with`, `fixed`, `partial`, `search` or `replacement`",
+        ))
     })?;
 
-    if secret.skip && (secret.with.is_some() || secret.fixed.is_some() || secret.partial) {
+    if secret.skip
+        && (secret.with.is_some()
+            || secret.fixed.is_some()
+            || secret.partial
+            || secret.search.is_some()
+            || secret.replacement.is_some())
+    {
         return Err(Error::new(
             secret.span,
             "`skip` cannot be combined with other options, as the value is not masked at all",

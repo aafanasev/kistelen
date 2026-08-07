@@ -1,0 +1,5 @@
+error: `search` requires `replacement`
+ --> tests/ui/regex/search_without_replacement.rs:5:5
+  |
+5 |     #[secret(search = r"\d+")]
+  |     ^

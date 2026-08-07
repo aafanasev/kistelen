@@ -1,0 +1,5 @@
+error: `search` and `replacement` decide the whole output, so they cannot be combined with `with`, `fixed` or `partial`
+ --> tests/ui/regex/combined_with_partial.rs:5:5
+  |
+5 |     #[secret(partial, search = r"\d+", replacement = "x")]
+  |     ^

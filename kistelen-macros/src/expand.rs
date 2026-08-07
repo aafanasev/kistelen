@@ -231,11 +231,38 @@ fn format_fields(
     plans: &[Plan],
     accessors: &[TokenStream],
 ) -> TokenStream {
-    let values = plans
-        .iter()
-        .zip(accessors)
-        .map(|(plan, accessor)| value(plan, accessor));
+    let mut caches = Vec::new();
+    let mut values = Vec::with_capacity(plans.len());
 
+    for (index, (plan, accessor)) in plans.iter().zip(accessors).enumerate() {
+        if let Some(Mode::Replace { .. }) = &plan.mode {
+            // Compiling a pattern on every call to `fmt` would make formatting
+            // far more expensive than the value is worth. The cache is
+            // declared alongside the code that reads it, one per field.
+            let cache = cache_ident(index);
+
+            caches.push(quote! {
+                static #cache: ::kistelen::__private::PatternCache =
+                    ::kistelen::__private::PatternCache::new();
+            });
+        }
+
+        values.push(value(plan, accessor, index));
+    }
+
+    let expression = format_expression(name, fields, &values);
+
+    quote! {
+        #(#caches)*
+        #expression
+    }
+}
+
+fn cache_ident(index: usize) -> syn::Ident {
+    format_ident!("__PATTERN{}", index)
+}
+
+fn format_expression(name: &str, fields: &Fields, values: &[TokenStream]) -> TokenStream {
     match fields {
         Fields::Named(named) => {
             let names = named
@@ -259,28 +286,47 @@ fn format_fields(
     }
 }
 
-fn value(plan: &Plan, accessor: &TokenStream) -> TokenStream {
+fn value(plan: &Plan, accessor: &TokenStream, index: usize) -> TokenStream {
     let Some(mode) = &plan.mode else {
         return quote!(#accessor);
     };
 
     // Masking an `Option` wholesale would hide whether a value is set at all,
     // which is rarely the intent, so the mask goes inside the `Some`.
-    if plan.masked_option {
-        if let Mode::Partial { character } = mode {
-            return quote!(&::kistelen::__private::PartialOption(#accessor, #character));
+    let option = plan.masked_option;
+
+    match mode {
+        Mode::Partial { character } if option => {
+            quote!(&::kistelen::__private::PartialOption(#accessor, #character))
         }
+        Mode::Partial { character } => {
+            quote!(&::kistelen::__private::Partial(#accessor, #character))
+        }
+        Mode::Replace {
+            pattern,
+            replacement,
+        } => {
+            let cache = cache_ident(index);
 
-        let mask = constant_mask(mode);
-        return quote!(&::kistelen::__private::MaskedOption(#accessor, #mask));
+            if option {
+                quote!(&::kistelen::__private::ReplacedOption(
+                    #accessor, &#cache, #pattern, #replacement
+                ))
+            } else {
+                quote!(&::kistelen::__private::Replaced(
+                    #accessor, &#cache, #pattern, #replacement
+                ))
+            }
+        }
+        constant if option => {
+            let mask = constant_mask(constant);
+            quote!(&::kistelen::__private::MaskedOption(#accessor, #mask))
+        }
+        constant => {
+            let mask = constant_mask(constant);
+            quote!(&#mask)
+        }
     }
-
-    if let Mode::Partial { character } = mode {
-        return quote!(&::kistelen::__private::Partial(#accessor, #character));
-    }
-
-    let mask = constant_mask(mode);
-    quote!(&#mask)
 }
 
 /// Tokens for a mask that does not depend on the value.
@@ -291,8 +337,10 @@ fn constant_mask(mode: &Mode) -> TokenStream {
         Mode::Fixed { count, character } => {
             quote!(::kistelen::__private::Fixed(#count, #character))
         }
-        // Partial reads the value, so it is never a constant.
-        Mode::Partial { .. } => unreachable!("partial masking is handled before this point"),
+        // Modes that read the value are handled before this point.
+        Mode::Partial { .. } | Mode::Replace { .. } => {
+            unreachable!("value-dependent masking is not a constant")
+        }
     }
 }
 

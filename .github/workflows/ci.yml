@@ -16,6 +16,9 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # Both feature sets: optional features change which code compiles, and
+      # some compile-fail messages differ between them.
+      - run: cargo test
       - run: cargo test --all-features
 
   lint:

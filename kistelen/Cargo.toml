@@ -11,8 +11,17 @@ keywords.workspace = true
 categories.workspace = true
 readme = "../README.md"
 
+[features]
+# Regex-driven masking. Off by default: it pulls in a regex engine, which is a
+# large dependency to impose on users who only need a constant mask.
+regex = ["dep:regex", "kistelen-macros/regex"]
+
 [dependencies]
 kistelen-macros = { version = "=0.1.0", path = "../kistelen-macros" }
+regex = { version = "1.10", optional = true }
 
 [dev-dependencies]
 trybuild = "1.0"
+
+[package.metadata.docs.rs]
+all-features = true

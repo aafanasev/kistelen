@@ -1,0 +1,5 @@
+error: `search` and `replacement` need the `regex` feature: kistelen = { version = "0.1", features = ["regex"] }
+ --> tests/ui/no_regex/feature_not_enabled.rs:5:5
+  |
+5 |     #[secret(search = r"\d+", replacement = "x")]
+  |     ^

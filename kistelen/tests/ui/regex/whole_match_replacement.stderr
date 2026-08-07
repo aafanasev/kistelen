@@ -1,0 +1,5 @@
+error: `replacement` must not contain `$0`, which would restore the whole matched value
+ --> tests/ui/regex/whole_match_replacement.rs:5:5
+  |
+5 |     #[secret(search = r"\d+", replacement = "$0")]
+  |     ^

@@ -1,0 +1,8 @@
+error: invalid `search` pattern: regex parse error:
+           ([0-9]{4}
+           ^
+       error: unclosed group
+ --> tests/ui/regex/invalid_pattern.rs:5:5
+  |
+5 |     #[secret(search = r"([0-9]{4}", replacement = "x")]
+  |     ^
