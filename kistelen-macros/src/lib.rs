@@ -9,6 +9,11 @@ use syn::{parse_macro_input, DeriveInput};
 mod attr;
 mod expand;
 
+/// The character repeated by modes that build a mask to a length.
+///
+/// Kept in step with `kistelen::MASK`, which is this character three times.
+const DEFAULT_MASK_CHARACTER: char = '■';
+
 /// Derives [`Debug`] with `#[secret]` fields replaced by a mask.
 #[proc_macro_derive(Secret, attributes(secret))]
 pub fn derive_secret(input: TokenStream) -> TokenStream {

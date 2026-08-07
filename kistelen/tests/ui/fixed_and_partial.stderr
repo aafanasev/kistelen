@@ -1,0 +1,5 @@
+error: `fixed` and `partial` cannot be combined: one hides the length, the other exposes part of the value
+ --> tests/ui/fixed_and_partial.rs:5:5
+  |
+5 |     #[secret(fixed = 4, partial)]
+  |     ^

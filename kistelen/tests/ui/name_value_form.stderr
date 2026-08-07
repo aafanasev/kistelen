@@ -1,4 +1,4 @@
-error: expected `#[secret]` or `#[secret(skip)]`
+error: expected `#[secret]` or `#[secret(...)]` with options
  --> tests/ui/name_value_form.rs:5:5
   |
 5 |     #[secret = "***"]

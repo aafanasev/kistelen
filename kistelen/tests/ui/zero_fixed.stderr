@@ -1,0 +1,5 @@
+error: `fixed` must be at least 1, or nothing is printed
+ --> tests/ui/zero_fixed.rs:5:14
+  |
+5 |     #[secret(fixed = 0)]
+  |              ^^^^^^^^^

@@ -84,6 +84,45 @@ enum Credential {
 }
 ```
 
+## Choosing the mask
+
+`with` replaces the mask, taking a string or a single character:
+
+```rust
+#[secret(with = "REDACTED")]
+password: String,
+```
+
+`fixed` prints a set number of mask characters, hiding how long the value was.
+A mask that tracks the real length discloses it, which matters for a PIN or a
+CVV:
+
+```rust
+#[secret(fixed = 3)]
+cvv: String,
+```
+
+`partial` exposes a little of each end, for values where the visible part is
+operationally useful:
+
+```rust
+#[secret(partial)]
+number: String,
+```
+
+```text
+Card { number: 123■■■■■■■■■■456 }
+```
+
+Exposure is a fifth of the value at each end, never more than four characters,
+so the proportion revealed falls as the value grows. Below eight characters
+nothing is exposed at all and a fixed-width mask is printed instead — a few
+characters of a short value narrow it too far, and a mask that tracked the
+length would disclose that too.
+
+`partial` reads the value, so the field must implement `Display`. The other
+modes never look at it, and work on any type.
+
 ## Options
 
 A masked `Option` keeps its shape, because whether a value is set is usually
@@ -125,9 +164,9 @@ Early. Currently supported:
 - `#[secret(skip)]` to exempt a field from a wider rule
 - `Option` masked through its `Some`
 - both `{:?}` and `{:#?}`
+- `with`, `fixed` and `partial` masking
 
-Planned: custom mask strings, fixed-width masks that hide length, partial
-masking, regex-driven masking.
+Planned: regex-driven masking.
 
 Misuse is a compile error with an explanatory message rather than something
 that silently does nothing — `skip` on a field no rule covers is rejected,

@@ -1,4 +1,4 @@
-error: unrecognised option, expected `skip`
+error: unrecognised option, expected `skip`, `with`, `fixed` or `partial`
  --> tests/ui/unknown_option.rs:5:14
   |
 5 |     #[secret(hidden)]

@@ -1,0 +1,5 @@
+error: `with` must be a single character when combined with `fixed` or `partial`, which repeat it
+ --> tests/ui/multi_character_with.rs:5:5
+  |
+5 |     #[secret(fixed = 4, with = "xy")]
+  |     ^

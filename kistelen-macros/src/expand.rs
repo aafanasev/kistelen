@@ -9,7 +9,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Error, Field, Fields, Result, Variant};
 
-use crate::attr;
+use crate::attr::{self, Mode, Secret};
 
 pub(crate) fn derive(input: &DeriveInput) -> Result<TokenStream> {
     let body = match &input.data {
@@ -35,10 +35,10 @@ pub(crate) fn derive(input: &DeriveInput) -> Result<TokenStream> {
     })
 }
 
-/// How one field will be rendered.
+/// How one field will be rendered. `None` leaves the value untouched.
 struct Plan<'a> {
     field: &'a Field,
-    masked: bool,
+    mode: Option<Mode>,
     /// Masked, and written as an `Option`, so the mask goes inside the `Some`.
     masked_option: bool,
 }
@@ -46,50 +46,56 @@ struct Plan<'a> {
 impl Plan<'_> {
     /// Whether the body reads this field's value.
     ///
-    /// A fully masked field is never read: the mask is a constant. A masked
-    /// option still is, to tell `Some` from `None`.
+    /// A constant mask never reads it. A masked option does, to tell `Some`
+    /// from `None`, and partial masking does, since the output depends on the
+    /// value itself.
     fn reads_value(&self) -> bool {
-        !self.masked || self.masked_option
+        match &self.mode {
+            None => true,
+            Some(mode) => self.masked_option || mode.reads_value(),
+        }
     }
 }
 
-fn plan(fields: &Fields, blanket: bool) -> Result<Vec<Plan<'_>>> {
+fn plan<'a>(fields: &'a Fields, blanket: Option<&Secret>) -> Result<Vec<Plan<'a>>> {
     fields
         .iter()
         .map(|field| {
-            let masked = is_masked(field, blanket)?;
+            let mode = mode_for(field, blanket)?;
 
             Ok(Plan {
                 field,
-                masked,
-                masked_option: masked && is_option(&field.ty),
+                masked_option: mode.is_some() && is_option(&field.ty),
+                mode,
             })
         })
         .collect()
 }
 
-fn is_masked(field: &Field, blanket: bool) -> Result<bool> {
+/// Resolves the rendering mode for one field, falling back to the rule its
+/// container sets.
+fn mode_for(field: &Field, blanket: Option<&Secret>) -> Result<Option<Mode>> {
     let Some(secret) = attr::find(&field.attrs)? else {
-        return Ok(blanket);
+        return blanket.map(Secret::mode).transpose();
     };
 
     if !secret.skip {
-        return Ok(true);
+        return Ok(Some(secret.mode()?));
     }
 
-    if !blanket {
+    if blanket.is_none() {
         return Err(Error::new(
             secret.span,
             "`skip` has no effect here, as no `#[secret]` on the struct, enum or variant covers this field",
         ));
     }
 
-    Ok(false)
+    Ok(None)
 }
 
 fn struct_body(input: &DeriveInput, data: &syn::DataStruct) -> Result<TokenStream> {
     let blanket = attr::blanket(&input.attrs)?;
-    let plans = plan(&data.fields, blanket)?;
+    let plans = plan(&data.fields, blanket.as_ref())?;
     let name = input.ident.to_string();
 
     let accessors = data
@@ -122,7 +128,7 @@ fn enum_body(input: &DeriveInput, data: &syn::DataEnum) -> Result<TokenStream> {
     let arms = data
         .variants
         .iter()
-        .map(|variant| variant_arm(&input.ident, variant, blanket))
+        .map(|variant| variant_arm(&input.ident, variant, blanket.as_ref()))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(quote! {
@@ -132,9 +138,15 @@ fn enum_body(input: &DeriveInput, data: &syn::DataEnum) -> Result<TokenStream> {
     })
 }
 
-fn variant_arm(enum_ident: &syn::Ident, variant: &Variant, blanket: bool) -> Result<TokenStream> {
-    // A variant may carry its own `#[secret]`, covering the fields it holds.
-    let blanket = blanket || attr::blanket(&variant.attrs)?;
+fn variant_arm(
+    enum_ident: &syn::Ident,
+    variant: &Variant,
+    blanket: Option<&Secret>,
+) -> Result<TokenStream> {
+    // A variant may carry its own `#[secret]`, which takes precedence over one
+    // on the enum for the fields it holds.
+    let own = attr::blanket(&variant.attrs)?;
+    let blanket = own.as_ref().or(blanket);
     let plans = plan(&variant.fields, blanket)?;
 
     let variant_ident = &variant.ident;
@@ -143,8 +155,10 @@ fn variant_arm(enum_ident: &syn::Ident, variant: &Variant, blanket: bool) -> Res
     let accessors = plans
         .iter()
         .enumerate()
-        .map(|(index, plan)| binding(plan.field, index))
-        .map(|ident| quote!(#ident))
+        .map(|(index, plan)| {
+            let ident = binding(plan.field, index);
+            quote!(#ident)
+        })
         .collect::<Vec<_>>();
 
     let body = format_fields(&name, &variant.fields, &plans, &accessors);
@@ -246,17 +260,40 @@ fn format_fields(
 }
 
 fn value(plan: &Plan, accessor: &TokenStream) -> TokenStream {
-    if !plan.masked {
+    let Some(mode) = &plan.mode else {
         return quote!(#accessor);
-    }
+    };
 
     // Masking an `Option` wholesale would hide whether a value is set at all,
     // which is rarely the intent, so the mask goes inside the `Some`.
     if plan.masked_option {
-        return quote!(&::kistelen::__private::MaskedOption(#accessor));
+        if let Mode::Partial { character } = mode {
+            return quote!(&::kistelen::__private::PartialOption(#accessor, #character));
+        }
+
+        let mask = constant_mask(mode);
+        return quote!(&::kistelen::__private::MaskedOption(#accessor, #mask));
     }
 
-    quote!(&::kistelen::__private::Mask)
+    if let Mode::Partial { character } = mode {
+        return quote!(&::kistelen::__private::Partial(#accessor, #character));
+    }
+
+    let mask = constant_mask(mode);
+    quote!(&#mask)
+}
+
+/// Tokens for a mask that does not depend on the value.
+fn constant_mask(mode: &Mode) -> TokenStream {
+    match mode {
+        Mode::Full => quote!(::kistelen::__private::Mask),
+        Mode::Literal(text) => quote!(::kistelen::__private::Literal(#text)),
+        Mode::Fixed { count, character } => {
+            quote!(::kistelen::__private::Fixed(#count, #character))
+        }
+        // Partial reads the value, so it is never a constant.
+        Mode::Partial { .. } => unreachable!("partial masking is handled before this point"),
+    }
 }
 
 /// Recognises `Option<T>` by name.
