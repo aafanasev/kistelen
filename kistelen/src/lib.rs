@@ -31,12 +31,101 @@
 //! Fields without `#[secret]` are formatted by their own [`Debug`]
 //! implementation, exactly as the standard derive would.
 //!
+//! # Masking a whole type
+//!
+//! `#[secret]` on a struct, an enum, or a single variant masks every field it
+//! covers. `#[secret(skip)]` exempts one:
+//!
+//! ```
+//! # use kistelen::Secret;
+//! #[derive(Secret)]
+//! #[secret]
+//! struct Session {
+//!     #[secret(skip)]
+//!     id: u32,
+//!     token: String,
+//! }
+//!
+//! let session = Session { id: 7, token: "abc".to_string() };
+//!
+//! assert_eq!(format!("{session:?}"), "Session { id: 7, token: ■■■ }");
+//! ```
+//!
+//! Field names are kept. They are rarely the sensitive part, and they carry
+//! the structure that made the value worth logging.
+//!
+//! Using `skip` where no wider rule applies is a compile error, since it would
+//! read as protection that is not there.
+//!
+//! # Choosing the mask
+//!
+//! [`with`](Secret#with) replaces the mask, [`fixed`](Secret#fixed) prints a
+//! set number of characters and hides the length, and
+//! [`partial`](Secret#partial) exposes a little of each end:
+//!
+//! ```
+//! # use kistelen::Secret;
+//! #[derive(Secret)]
+//! struct Card {
+//!     #[secret(with = "REDACTED")]
+//!     holder: String,
+//!     #[secret(fixed = 3)]
+//!     cvv: String,
+//!     #[secret(partial)]
+//!     number: String,
+//! }
+//!
+//! let card = Card {
+//!     holder: "Alice Smith".to_string(),
+//!     cvv: "123".to_string(),
+//!     number: "1234567890123456".to_string(),
+//! };
+//!
+//! assert_eq!(
+//!     format!("{card:?}"),
+//!     "Card { holder: REDACTED, cvv: ■■■, number: 123■■■■■■■■■■456 }",
+//! );
+//! ```
+//!
+//! Only `partial` reads the value, so only it requires
+//! [`Display`](core::fmt::Display). The rest apply to any type.
+//!
+//! # Options
+//!
+//! A masked [`Option`] keeps its `Some`/`None` shape, since whether a value is
+//! set is usually structural rather than sensitive:
+//!
+//! ```
+//! # use kistelen::Secret;
+//! #[derive(Secret)]
+//! struct Account {
+//!     #[secret]
+//!     password: Option<String>,
+//! }
+//!
+//! let set = Account { password: Some("hunter2".to_string()) };
+//! let unset = Account { password: None };
+//!
+//! assert_eq!(format!("{set:?}"), "Account { password: Some(■■■) }");
+//! assert_eq!(format!("{unset:?}"), "Account { password: None }");
+//! ```
+//!
+//! # Patterns
+//!
+//! With the `regex` feature, `search` and `replacement` rewrite a value for
+//! shapes the modes above cannot express — see [`Secret`](Secret#patterns).
+//!
 //! # What this does not cover
 //!
 //! Masking applies to [`Debug`] alone. A value can still reach the outside
 //! world through [`Display`](core::fmt::Display), serialisation, or a direct
 //! read of the field. Reaching for this macro protects the accidental path —
 //! the one nobody wrote and nobody reviews — not every path.
+//!
+//! [`Display`](core::fmt::Display) is deliberately left alone. It is meant to
+//! be human-readable, and anything implementing it also gets
+//! [`ToString`], so masking there would make
+//! `to_string()` lossy in ways callers would not expect.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]

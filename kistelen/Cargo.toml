@@ -25,3 +25,9 @@ trybuild = "1.0"
 
 [package.metadata.docs.rs]
 all-features = true
+
+# Building this example without the feature would fail, so cargo is told when
+# it applies rather than leaving `cargo test` to break on default features.
+[[example]]
+name = "patterns"
+required-features = ["regex"]
