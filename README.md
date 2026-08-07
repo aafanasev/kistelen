@@ -209,6 +209,11 @@ Misuse is a compile error with an explanatory message rather than something
 that silently does nothing — `skip` on a field no rule covers is rejected,
 since it reads as protection that is not there.
 
+The attribute is always spelled `#[secret]`. A project cannot nominate a name
+of its own, because an attribute on a field must be registered by the derive
+that reads it, and that list is fixed when this crate is compiled — see
+[the spike](docs/custom-attribute-names.md) for what was tried.
+
 ## Related
 
 [sekret](https://github.com/aafanasev/sekret) — the same idea for Kotlin,
