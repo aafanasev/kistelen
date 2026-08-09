@@ -7,6 +7,7 @@ use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
 mod attr;
+mod bounds;
 mod expand;
 
 /// The character repeated by modes that build a mask to a length.
@@ -102,6 +103,34 @@ const DEFAULT_MASK_CHARACTER: char = '■';
 ///
 /// Every mode except `partial` and pattern replacement ignores the value
 /// entirely, so any type can carry them.
+///
+/// # Generics
+///
+/// Bounds are worked out per field, from what that field's rendering needs:
+/// [`Debug`] for a field printed normally, [`Display`](core::fmt::Display) for
+/// one read as text before masking, and nothing at all for a constant mask.
+///
+/// This is deliberately narrower than the standard derive, which bounds every
+/// type parameter by [`Debug`]. A parameter appearing only in masked fields
+/// stays unbounded, so a type implementing neither trait can still be held and
+/// masked:
+///
+/// ```ignore
+/// struct Opaque;                 // implements nothing
+///
+/// #[derive(Secret)]
+/// struct Envelope<T> {
+///     #[secret]
+///     payload: T,
+/// }
+///
+/// // Envelope { payload: ■■■ }
+/// println!("{:?}", Envelope { payload: Opaque });
+/// ```
+///
+/// Bounds land on the field's own type rather than the parameters within it,
+/// and a masked [`Option`] read by `partial` or a pattern bounds the contained
+/// type rather than the option. Any bound already written on the type is kept.
 #[proc_macro_derive(Secret, attributes(secret))]
 pub fn derive_secret(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
