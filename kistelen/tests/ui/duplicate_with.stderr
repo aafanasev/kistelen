@@ -1,0 +1,5 @@
+error: duplicate `with` option
+ --> tests/ui/duplicate_with.rs:5:30
+  |
+5 |     #[secret(with = "FIRST", with = "SECOND")]
+  |                              ^^^^

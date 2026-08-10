@@ -201,6 +201,27 @@ pub(crate) fn find(attrs: &[Attribute]) -> Result<Option<Secret>> {
     Ok(found)
 }
 
+/// Options already given inside one attribute.
+///
+/// Repeating an option is rejected rather than resolved by taking the last
+/// one. The crate refuses conflicting intent everywhere else — a duplicated
+/// `#[secret]`, `fixed` alongside `partial` — and silently keeping one of two
+/// spellings would make a typo look like a working configuration.
+#[derive(Default)]
+struct Seen(Vec<&'static str>);
+
+impl Seen {
+    fn first(&mut self, option: &'static str, meta: &syn::meta::ParseNestedMeta) -> Result<()> {
+        if self.0.contains(&option) {
+            return Err(meta.error(format!("duplicate `{option}` option")));
+        }
+
+        self.0.push(option);
+
+        Ok(())
+    }
+}
+
 fn parse(attr: &Attribute) -> Result<Secret> {
     let mut secret = Secret {
         skip: false,
@@ -223,18 +244,24 @@ fn parse(attr: &Attribute) -> Result<Secret> {
         syn::Meta::List(_) => {}
     }
 
+    let mut seen = Seen::default();
+
     attr.parse_nested_meta(|meta| {
         if meta.path.is_ident("skip") {
+            seen.first("skip", &meta)?;
             secret.skip = true;
             return Ok(());
         }
 
         if meta.path.is_ident("partial") {
+            seen.first("partial", &meta)?;
             secret.partial = true;
             return Ok(());
         }
 
         if meta.path.is_ident("with") {
+            seen.first("with", &meta)?;
+
             secret.with = Some(match meta.value()?.parse::<Lit>()? {
                 Lit::Str(text) => With::Text(text.value()),
                 Lit::Char(character) => With::Character(character.value()),
@@ -250,6 +277,8 @@ fn parse(attr: &Attribute) -> Result<Secret> {
         }
 
         if meta.path.is_ident("fixed") {
+            seen.first("fixed", &meta)?;
+
             let count: usize = match meta.value()?.parse::<Lit>()? {
                 Lit::Int(integer) => integer.base10_parse()?,
                 other => {
@@ -270,6 +299,8 @@ fn parse(attr: &Attribute) -> Result<Secret> {
             ("replacement", &mut secret.replacement),
         ] {
             if meta.path.is_ident(name) {
+                seen.first(name, &meta)?;
+
                 *target = Some(match meta.value()?.parse::<Lit>()? {
                     Lit::Str(text) => text.value(),
                     other => {

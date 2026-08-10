@@ -1,0 +1,5 @@
+error: duplicate `partial` option
+ --> tests/ui/duplicate_partial.rs:5:23
+  |
+5 |     #[secret(partial, partial)]
+  |                       ^^^^^^^

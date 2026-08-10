@@ -1,0 +1,5 @@
+error: duplicate `replacement` option
+ --> tests/ui/duplicate_replacement.rs:5:50
+  |
+5 |     #[secret(search = r"\d+", replacement = "x", replacement = "y")]
+  |                                                  ^^^^^^^^^^^
