@@ -107,8 +107,10 @@ fn masking_is_independent_of_the_field_type() {
 
 #[test]
 fn generic_structs_are_supported() {
+    // No bound written here: the derive works one out per field. The wider
+    // behaviour lives in `generics.rs`.
     #[derive(Secret)]
-    struct Envelope<T: core::fmt::Debug> {
+    struct Envelope<T> {
         payload: T,
         #[secret]
         signature: String,

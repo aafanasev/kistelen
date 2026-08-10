@@ -10,11 +10,14 @@ use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Error, Field, Fields, Result, Variant};
 
 use crate::attr::{self, Mode, Secret};
+use crate::bounds::{Bounds, Requirement};
 
 pub(crate) fn derive(input: &DeriveInput) -> Result<TokenStream> {
+    let mut bounds = Bounds::new(&input.generics);
+
     let body = match &input.data {
-        Data::Struct(data) => struct_body(input, data)?,
-        Data::Enum(data) => enum_body(input, data)?,
+        Data::Struct(data) => struct_body(input, data, &mut bounds)?,
+        Data::Enum(data) => enum_body(input, data, &mut bounds)?,
         Data::Union(_) => {
             return Err(Error::new_spanned(
                 &input.ident,
@@ -24,7 +27,8 @@ pub(crate) fn derive(input: &DeriveInput) -> Result<TokenStream> {
     };
 
     let ident = &input.ident;
-    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
+    let generics = bounds.apply(&input.generics);
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
 
     Ok(quote! {
         impl #impl_generics ::core::fmt::Debug for #ident #type_generics #where_clause {
@@ -57,19 +61,48 @@ impl Plan<'_> {
     }
 }
 
-fn plan<'a>(fields: &'a Fields, blanket: Option<&Secret>) -> Result<Vec<Plan<'a>>> {
-    fields
-        .iter()
-        .map(|field| {
-            let mode = mode_for(field, blanket)?;
+fn plan<'a>(
+    fields: &'a Fields,
+    blanket: Option<&Secret>,
+    bounds: &mut Bounds,
+) -> Result<Vec<Plan<'a>>> {
+    let mut plans = Vec::with_capacity(fields.len());
 
-            Ok(Plan {
-                field,
-                masked_option: mode.is_some() && is_option(&field.ty),
-                mode,
-            })
-        })
-        .collect()
+    for field in fields {
+        let mode = mode_for(field, blanket)?;
+        let inner = option_inner(&field.ty);
+        let masked_option = mode.is_some() && inner.is_some();
+
+        match &mode {
+            // Printed through its own `Debug`, exactly as the standard derive
+            // would.
+            None => bounds.require(&field.ty, Requirement::Debug),
+
+            // Read as text before masking. Inside an `Option` it is the
+            // contained value that is read, so the bound belongs to it rather
+            // than to the option.
+            Some(mode) if mode.reads_value() => {
+                let target = match inner {
+                    Some(inner) if masked_option => inner,
+                    _ => &field.ty,
+                };
+
+                bounds.require(target, Requirement::Display);
+            }
+
+            // A constant mask never touches the value, so the field type is
+            // free to implement nothing at all.
+            Some(_) => {}
+        }
+
+        plans.push(Plan {
+            field,
+            mode,
+            masked_option,
+        });
+    }
+
+    Ok(plans)
 }
 
 /// Resolves the rendering mode for one field, falling back to the rule its
@@ -93,9 +126,13 @@ fn mode_for(field: &Field, blanket: Option<&Secret>) -> Result<Option<Mode>> {
     Ok(None)
 }
 
-fn struct_body(input: &DeriveInput, data: &syn::DataStruct) -> Result<TokenStream> {
+fn struct_body(
+    input: &DeriveInput,
+    data: &syn::DataStruct,
+    bounds: &mut Bounds,
+) -> Result<TokenStream> {
     let blanket = attr::blanket(&input.attrs)?;
-    let plans = plan(&data.fields, blanket.as_ref())?;
+    let plans = plan(&data.fields, blanket.as_ref(), bounds)?;
     let name = input.ident.to_string();
 
     let accessors = data
@@ -114,7 +151,11 @@ fn struct_body(input: &DeriveInput, data: &syn::DataStruct) -> Result<TokenStrea
     Ok(format_fields(&name, &data.fields, &plans, &accessors))
 }
 
-fn enum_body(input: &DeriveInput, data: &syn::DataEnum) -> Result<TokenStream> {
+fn enum_body(
+    input: &DeriveInput,
+    data: &syn::DataEnum,
+    bounds: &mut Bounds,
+) -> Result<TokenStream> {
     let blanket = attr::blanket(&input.attrs)?;
 
     if data.variants.is_empty() {
@@ -128,7 +169,7 @@ fn enum_body(input: &DeriveInput, data: &syn::DataEnum) -> Result<TokenStream> {
     let arms = data
         .variants
         .iter()
-        .map(|variant| variant_arm(&input.ident, variant, blanket.as_ref()))
+        .map(|variant| variant_arm(&input.ident, variant, blanket.as_ref(), bounds))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(quote! {
@@ -142,12 +183,13 @@ fn variant_arm(
     enum_ident: &syn::Ident,
     variant: &Variant,
     blanket: Option<&Secret>,
+    bounds: &mut Bounds,
 ) -> Result<TokenStream> {
     // A variant may carry its own `#[secret]`, which takes precedence over one
     // on the enum for the fields it holds.
     let own = attr::blanket(&variant.attrs)?;
     let blanket = own.as_ref().or(blanket);
-    let plans = plan(&variant.fields, blanket)?;
+    let plans = plan(&variant.fields, blanket, bounds)?;
 
     let variant_ident = &variant.ident;
     let name = variant_ident.to_string();
@@ -344,28 +386,39 @@ fn constant_mask(mode: &Mode) -> TokenStream {
     }
 }
 
-/// Recognises `Option<T>` by name.
+/// Recognises `Option<T>` by name, yielding the contained type.
+///
+/// The contained type is what the value-reading modes need bounded, since they
+/// reach inside the `Some` rather than formatting the option itself.
 ///
 /// This can only ever be syntactic: at expansion time a type alias for
 /// `Option<T>` is indistinguishable from any other path, so an aliased option
 /// is masked whole rather than through its `Some`.
-fn is_option(ty: &syn::Type) -> bool {
+fn option_inner(ty: &syn::Type) -> Option<&syn::Type> {
     let syn::Type::Path(path) = ty else {
-        return false;
+        return None;
     };
 
     if path.qself.is_some() {
-        return false;
+        return None;
     }
 
-    let Some(segment) = path.path.segments.last() else {
-        return false;
-    };
+    let segment = path.path.segments.last()?;
 
     if segment.ident != "Option" {
-        return false;
+        return None;
     }
 
-    matches!(&segment.arguments, syn::PathArguments::AngleBracketed(args)
-        if args.args.len() == 1)
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return None;
+    };
+
+    if arguments.args.len() != 1 {
+        return None;
+    }
+
+    match arguments.args.first()? {
+        syn::GenericArgument::Type(inner) => Some(inner),
+        _ => None,
+    }
 }
