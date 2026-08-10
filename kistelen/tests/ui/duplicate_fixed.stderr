@@ -1,0 +1,5 @@
+error: duplicate `fixed` option
+ --> tests/ui/duplicate_fixed.rs:5:25
+  |
+5 |     #[secret(fixed = 3, fixed = 8)]
+  |                         ^^^^^

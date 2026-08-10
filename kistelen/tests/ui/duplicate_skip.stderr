@@ -1,0 +1,5 @@
+error: duplicate `skip` option
+ --> tests/ui/duplicate_skip.rs:6:20
+  |
+6 |     #[secret(skip, skip)]
+  |                    ^^^^

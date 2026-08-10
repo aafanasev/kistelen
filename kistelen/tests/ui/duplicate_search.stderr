@@ -1,0 +1,5 @@
+error: duplicate `search` option
+ --> tests/ui/duplicate_search.rs:5:31
+  |
+5 |     #[secret(search = r"\d+", search = r"\w+", replacement = "x")]
+  |                               ^^^^^^
