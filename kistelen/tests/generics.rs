@@ -12,6 +12,31 @@ use kistelen::Secret;
 /// bound is generated.
 struct Opaque;
 
+/// Formats only at one const value, so a field holding it is generic in `N`
+/// even though no type parameter appears in the field's type.
+struct OnlyOne<const N: usize>;
+
+impl core::fmt::Debug for OnlyOne<1> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("one")
+    }
+}
+
+impl core::fmt::Display for OnlyOne<1> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("1234567890123456")
+    }
+}
+
+/// The lifetime counterpart: formats only at `'static`.
+struct OnlyStatic<'a>(&'a str);
+
+impl core::fmt::Debug for OnlyStatic<'static> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("static")
+    }
+}
+
 #[test]
 fn an_unbounded_parameter_works_when_the_field_is_printed() {
     #[derive(Secret)]
@@ -265,6 +290,81 @@ fn pattern_replacement_bounds_the_parameter_by_display() {
     };
 
     assert_eq!(format!("{account:?}"), "Account { number: ****5678 }");
+}
+
+#[test]
+fn a_field_depending_only_on_a_const_parameter_is_bounded() {
+    #[derive(Secret)]
+    struct Wrapper<const N: usize> {
+        value: OnlyOne<N>,
+        #[secret]
+        secret: String,
+    }
+
+    let wrapper = Wrapper::<1> {
+        value: OnlyOne::<1>,
+        secret: "s".to_string(),
+    };
+
+    assert_eq!(
+        format!("{wrapper:?}"),
+        "Wrapper { value: one, secret: ■■■ }"
+    );
+}
+
+#[test]
+fn a_partially_masked_const_dependent_field_is_bounded_by_display() {
+    #[derive(Secret)]
+    struct Wrapper<const N: usize> {
+        #[secret(partial)]
+        value: OnlyOne<N>,
+    }
+
+    let wrapper = Wrapper::<1> {
+        value: OnlyOne::<1>,
+    };
+
+    assert_eq!(
+        format!("{wrapper:?}"),
+        "Wrapper { value: 123■■■■■■■■■■456 }",
+    );
+}
+
+#[test]
+fn a_constant_masked_const_dependent_field_stays_unbounded() {
+    // `OnlyOne<2>` formats no way at all, so this compiles only if the mask
+    // is printed without reaching for a bound.
+    #[derive(Secret)]
+    struct Wrapper<const N: usize> {
+        #[secret]
+        value: OnlyOne<N>,
+    }
+
+    let wrapper = Wrapper::<2> {
+        value: OnlyOne::<2>,
+    };
+
+    assert_eq!(format!("{wrapper:?}"), "Wrapper { value: ■■■ }");
+}
+
+#[test]
+fn a_field_depending_only_on_a_lifetime_is_bounded() {
+    #[derive(Secret)]
+    struct Wrapper<'a> {
+        value: OnlyStatic<'a>,
+        #[secret]
+        secret: &'a str,
+    }
+
+    let wrapper = Wrapper {
+        value: OnlyStatic("x"),
+        secret: "s",
+    };
+
+    assert_eq!(
+        format!("{wrapper:?}"),
+        "Wrapper { value: static, secret: ■■■ }",
+    );
 }
 
 #[test]

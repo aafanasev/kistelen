@@ -5,6 +5,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Bound inference recognises const and lifetime parameters, not only type
+  parameters. A field whose type depended solely on one of those was treated
+  as non-generic, so its `Debug` or `Display` predicate was left out and the
+  error surfaced inside the generated code
+  ([#7](https://github.com/aafanasev/kistelen/issues/7)).
+
+  An implementation can be written for one const value or one lifetime and not
+  others, which makes such a field exactly as generic as one naming a type
+  parameter. Constant-masked fields stay unbounded as before, since nothing
+  reads them.
+
 ## [0.1.1] — 2026-08-10
 
 ### Fixed
