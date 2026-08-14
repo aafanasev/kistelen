@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-08-13
+
 ### Fixed
 
 - Bound inference recognises const and lifetime parameters, not only type
@@ -60,6 +62,7 @@ Initial release.
 - Regex masking behind the optional `regex` feature
 - Both `{:?}` and `{:#?}`
 
-[Unreleased]: https://github.com/aafanasev/kistelen/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/aafanasev/kistelen/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/aafanasev/kistelen/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/aafanasev/kistelen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/aafanasev/kistelen/releases/tag/v0.1.0

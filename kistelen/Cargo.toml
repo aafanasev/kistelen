@@ -17,7 +17,7 @@ readme = "../README.md"
 regex = ["dep:regex", "kistelen-macros/regex"]
 
 [dependencies]
-kistelen-macros = { version = "=0.1.1", path = "../kistelen-macros" }
+kistelen-macros = { version = "=0.1.2", path = "../kistelen-macros" }
 regex = { version = "1.10", optional = true }
 
 [dev-dependencies]
