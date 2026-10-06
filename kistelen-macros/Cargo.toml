@@ -19,7 +19,7 @@ regex = ["dep:regex-syntax"]
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
-syn = { version = "2.0", features = ["full"] }
+syn = { version = "3.0", features = ["full"] }
 # Parses patterns to validate them at expansion time without building a
 # matcher, which is all the macro needs.
 regex-syntax = { version = "0.8", optional = true }

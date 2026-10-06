@@ -5,6 +5,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The derive macro is built on `syn` 3 instead of `syn` 2. Nothing about the
+  macro's behaviour or its minimum supported Rust version (1.71) changes; a
+  dependent whose tree has already moved to `syn` 3 no longer compiles both
+  majors.
+
 ## [0.1.2] — 2026-08-13
 
 ### Fixed
