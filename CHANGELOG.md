@@ -5,6 +5,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-11-14
+
+### Security
+
+- A `replacement` that refers to the whole match is rejected however it is
+  spelled. The check looked for the text `$0` and `${0}`, but the regex crate
+  parses a group name as a number, so `${00}`, `${000}` and `${+0}` also meant
+  group 0 and printed the secret in full
+  ([#12](https://github.com/aafanasev/kistelen/pull/12)). `$$0`, an escaped `$`
+  followed by a literal `0`, is now accepted rather than wrongly refused.
+
+### Fixed
+
+- A `replacement` that refers to a group the pattern does not define is a
+  compile error. The regex crate expands such a reference to nothing, so a typo
+  silently dropped part of the output. That includes `$1x`, which names a group
+  `1x` rather than following group 1 with `x`; the error suggests `${1}x`
+  ([#13](https://github.com/aafanasev/kistelen/pull/13)).
+- `search` patterns are anchored to both ends of the value. The value was first
+  searched and then checked to be covered end to end, and a search stops at the
+  first alternative or the shortest lazy match, so a pattern describing the
+  whole value could still fall back to the mask. Values only partly covered are
+  masked as before ([#15](https://github.com/aafanasev/kistelen/pull/15)).
+- Raw identifiers print without their `r#` prefix, as the standard derive
+  prints them: a field `r#type` renders as `type`
+  ([#11](https://github.com/aafanasev/kistelen/pull/11)).
+- An enum field named like a binding in the generated code, such as
+  `formatter`, no longer shadows it and fails to compile
+  ([#14](https://github.com/aafanasev/kistelen/pull/14)).
+
 ### Changed
 
 - The derive macro is built on `syn` 3 instead of `syn` 2. Nothing about the
@@ -69,7 +99,8 @@ Initial release.
 - Regex masking behind the optional `regex` feature
 - Both `{:?}` and `{:#?}`
 
-[Unreleased]: https://github.com/aafanasev/kistelen/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/aafanasev/kistelen/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/aafanasev/kistelen/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/aafanasev/kistelen/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/aafanasev/kistelen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/aafanasev/kistelen/releases/tag/v0.1.0
