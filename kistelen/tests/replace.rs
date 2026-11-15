@@ -72,6 +72,25 @@ fn a_pattern_can_expose_a_chosen_group() {
 }
 
 #[test]
+fn an_escaped_dollar_before_zero_is_a_literal_not_the_whole_match() {
+    // `$$` is a literal `$`, so `$$0` renders the text `$0` rather than
+    // restoring the matched value.
+    #[derive(Secret)]
+    struct Card {
+        #[secret(search = r"(\d+)", replacement = "$$0")]
+        number: String,
+    }
+
+    let card = Card {
+        number: "4111222233334444".to_string(),
+    };
+    let output = format!("{card:?}");
+
+    assert_eq!(output, "Card { number: $0 }");
+    assert!(!output.contains("4111"));
+}
+
+#[test]
 fn replacement_applies_inside_an_option() {
     #[derive(Secret)]
     struct Account {

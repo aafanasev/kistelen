@@ -161,7 +161,7 @@ fn validate_pattern(pattern: &str, replacement: &str, span: Span) -> Result<()> 
 
     // `$0` and `${0}` stand for the whole match, so a replacement containing
     // one would print back the value the pattern just matched.
-    if replacement.contains("$0") || replacement.contains("${0}") {
+    if refers_to_whole_match(replacement) {
         return Err(Error::new(
             span,
             "`replacement` must not contain `$0`, which would restore the whole matched value",
@@ -169,6 +169,62 @@ fn validate_pattern(pattern: &str, replacement: &str, span: Span) -> Result<()> 
     }
 
     Ok(())
+}
+
+/// Whether `replacement` refers to capture group 0, the whole match.
+///
+/// Mirrors the regex crate's replacement syntax rather than searching for
+/// `$0`: the group name is parsed as a `usize`, so `${00}` and `${+0}` mean
+/// group 0 too, while `$$0` is an escaped `$` followed by a literal `0`.
+#[cfg(feature = "regex")]
+fn refers_to_whole_match(replacement: &str) -> bool {
+    let bytes = replacement.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] != b'$' {
+            i += 1;
+            continue;
+        }
+
+        // `$$` is an escaped, literal `$`.
+        if bytes.get(i + 1) == Some(&b'$') {
+            i += 2;
+            continue;
+        }
+
+        let name = if bytes.get(i + 1) == Some(&b'{') {
+            // `${name}` runs to the next `}`; without one, the `$` is literal.
+            let start = i + 2;
+            match bytes[start..].iter().position(|&b| b == b'}') {
+                Some(length) => {
+                    i = start + length + 1;
+                    &replacement[start..start + length]
+                }
+                None => {
+                    i += 1;
+                    continue;
+                }
+            }
+        } else {
+            // `$name` is the longest run of `[_0-9a-zA-Z]`.
+            let start = i + 1;
+            let length = bytes[start..]
+                .iter()
+                .take_while(|&&b| b == b'_' || b.is_ascii_alphanumeric())
+                .count();
+            i = start + length;
+            &replacement[start..start + length]
+        };
+
+        // An empty name leaves the `$` literal or refers to no group; either
+        // way it does not parse as a number.
+        if name.parse::<usize>() == Ok(0) {
+            return true;
+        }
+    }
+
+    false
 }
 
 #[cfg(not(feature = "regex"))]
