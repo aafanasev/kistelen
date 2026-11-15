@@ -252,3 +252,48 @@ fn multi_line_mode_does_not_loosen_the_anchors() {
 
     assert_eq!(format!("{code:?}"), "Code { value: ■■■ }");
 }
+
+#[test]
+fn a_braced_group_can_be_followed_by_letters() {
+    #[derive(Secret)]
+    struct Code {
+        #[secret(search = r"(\d{2})(\d{2})", replacement = "${1}x")]
+        value: String,
+    }
+
+    let code = Code {
+        value: "1234".to_string(),
+    };
+
+    assert_eq!(format!("{code:?}"), "Code { value: 12x }");
+}
+
+#[test]
+fn a_named_group_can_be_referenced() {
+    #[derive(Secret)]
+    struct Card {
+        #[secret(search = r"\d{12}(?P<last>\d{4})", replacement = "****$last")]
+        number: String,
+    }
+
+    let card = Card {
+        number: "1234567890123456".to_string(),
+    };
+
+    assert_eq!(format!("{card:?}"), "Card { number: ****3456 }");
+}
+
+#[test]
+fn a_doubled_dollar_is_a_literal_dollar() {
+    #[derive(Secret)]
+    struct Price {
+        #[secret(search = r"\d+\.(\d{2})", replacement = "$$**.$1")]
+        amount: String,
+    }
+
+    let price = Price {
+        amount: "1999.95".to_string(),
+    };
+
+    assert_eq!(format!("{price:?}"), "Price { amount: $**.95 }");
+}
