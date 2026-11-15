@@ -85,8 +85,9 @@ const DEFAULT_MASK_CHARACTER: char = '■';
 /// number: String,
 /// ```
 ///
-/// The pattern must match the value from end to end; anything not fully
-/// matched is masked instead. A partial match would leave everything outside
+/// The pattern must match the value from end to end; it is anchored to both
+/// ends, so a whole-value match is used whenever one exists, and anything not
+/// fully matched is masked instead. A partial match would leave everything outside
 /// it untouched, so a pattern written for one shape of value would print a
 /// different shape verbatim. `$0` is rejected, since it would restore the
 /// whole matched value.

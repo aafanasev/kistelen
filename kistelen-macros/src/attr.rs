@@ -159,6 +159,25 @@ fn validate_pattern(pattern: &str, replacement: &str, span: Span) -> Result<()> 
         ));
     }
 
+    // The runtime compiles the pattern anchored to both ends of the value,
+    // trying a second form with a newline that ends a trailing `(?x)` comment.
+    // The same forms are checked here, so a pattern the macro accepts is one
+    // the runtime can compile.
+    let anchored = [
+        format!("\\A(?:{pattern})\\z"),
+        format!("\\A(?:{pattern}\n)\\z"),
+    ];
+
+    if !anchored
+        .iter()
+        .any(|anchored| regex_syntax::Parser::new().parse(anchored).is_ok())
+    {
+        return Err(Error::new(
+            span,
+            "invalid `search` pattern: it cannot be anchored to both ends of the value",
+        ));
+    }
+
     // `$0` and `${0}` stand for the whole match, so a replacement containing
     // one would print back the value the pattern just matched.
     if refers_to_whole_match(replacement) {

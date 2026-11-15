@@ -158,3 +158,97 @@ fn enum_field_names_cannot_shadow_the_pattern_cache() {
     );
     assert_eq!(format!("{pager:?}"), "Pager(***@example.org, 2)");
 }
+
+#[test]
+fn a_lazy_quantifier_still_matches_the_whole_value() {
+    // Unanchored, the lazy group would stop after one digit, and the value
+    // would be masked despite the pattern describing all of it.
+    #[derive(Secret)]
+    struct Code {
+        #[secret(search = r"(\d+?)", replacement = "<$1>")]
+        value: String,
+    }
+
+    let code = Code {
+        value: "123".to_string(),
+    };
+
+    assert_eq!(format!("{code:?}"), "Code { value: <123> }");
+}
+
+#[test]
+fn a_later_alternative_can_match_the_whole_value() {
+    // Unanchored, the first alternative would win with a match covering only
+    // the first two digits.
+    #[derive(Secret)]
+    struct Code {
+        #[secret(search = r"\d{2}|\d{2}-\d{2}", replacement = "**-**")]
+        value: String,
+    }
+
+    let code = Code {
+        value: "12-34".to_string(),
+    };
+
+    assert_eq!(format!("{code:?}"), "Code { value: **-** }");
+}
+
+#[test]
+fn a_pattern_that_only_describes_part_of_the_value_still_masks() {
+    #[derive(Secret)]
+    struct Code {
+        #[secret(search = r"\d{2}|\d{2}-\d{2}", replacement = "**-**")]
+        value: String,
+    }
+
+    let code = Code {
+        value: "12-34-56".to_string(),
+    };
+
+    assert_eq!(format!("{code:?}"), "Code { value: ■■■ }");
+}
+
+#[test]
+fn a_trailing_comment_under_verbose_mode_cannot_escape_the_anchors() {
+    // A `#` comment runs to the end of the line, so it would swallow the
+    // closing anchor were it not ended first.
+    #[derive(Secret)]
+    struct Code {
+        #[secret(
+            search = r"(?x) (\d{2}) \d{2} # keep the first two",
+            replacement = "$1**"
+        )]
+        value: String,
+    }
+
+    let whole = Code {
+        value: "1234".to_string(),
+    };
+    let longer = Code {
+        value: "123456".to_string(),
+    };
+    let surrounded = Code {
+        value: "x1234".to_string(),
+    };
+
+    assert_eq!(format!("{whole:?}"), "Code { value: 12** }");
+    assert_eq!(format!("{longer:?}"), "Code { value: ■■■ }");
+    assert_eq!(format!("{surrounded:?}"), "Code { value: ■■■ }");
+}
+
+#[test]
+fn multi_line_mode_does_not_loosen_the_anchors() {
+    // Under `(?m)`, `^` and `$` would match at line breaks, letting one line
+    // of a multi-line value stand for all of it.
+    #[derive(Secret)]
+    struct Code {
+        #[secret(search = r"(?m)\d+", replacement = "***")]
+        value: String,
+    }
+
+    let code = Code {
+        value: "123\nsecret".to_string(),
+    };
+
+    assert_eq!(format!("{code:?}"), "Code { value: ■■■ }");
+}

@@ -249,11 +249,48 @@ pub mod __private {
         /// Patterns are checked at expansion time, so failure here should be
         /// unreachable. It is still handled rather than unwrapped: a panic
         /// while formatting would turn a log line into an outage.
+        ///
+        /// The compiled form is anchored to both ends of the value: see
+        /// [`anchor`].
         fn get(&self, pattern: &str) -> Option<&regex::Regex> {
             self.0
-                .get_or_init(|| regex::Regex::new(pattern).ok())
+                .get_or_init(|| {
+                    // The pattern must stand on its own before it is wrapped,
+                    // or unbalanced groups could break out of the wrapper.
+                    regex::Regex::new(pattern).ok()?;
+                    anchor(pattern)
+                        .into_iter()
+                        .find_map(|anchored| regex::Regex::new(&anchored).ok())
+                })
                 .as_ref()
         }
+    }
+
+    /// The forms of `pattern` anchored to both ends of the value, in the order
+    /// to try them.
+    ///
+    /// Anchoring at compile time means a whole-value match is found whenever
+    /// one exists. Checking the bounds of an unanchored match is not enough:
+    /// the leftmost-first match can stop short of the end — a lazy quantifier
+    /// or an earlier alternative wins — even when another way through the
+    /// pattern spans the whole value.
+    ///
+    /// `\A` and `\z` are used rather than `^` and `$`, which `(?m)` would
+    /// turn into line anchors. The group does not capture, so `$1`, `$2`, ...
+    /// keep their numbers, and inline flags set inside it end with it.
+    ///
+    /// Under `(?x)`, a pattern ending in a `#` comment would swallow the
+    /// closing `)\z`, which leaves the group unclosed and fails to compile. A
+    /// newline ends the comment, so the second form puts one before the
+    /// closing parenthesis. It is only reached when the first form fails, so
+    /// the comment, and with it `(?x)`, is known to be in effect and the
+    /// newline is ignored rather than matched.
+    #[cfg(feature = "regex")]
+    fn anchor(pattern: &str) -> [String; 2] {
+        [
+            format!("\\A(?:{pattern})\\z"),
+            format!("\\A(?:{pattern}\n)\\z"),
+        ]
     }
 
     /// The value rewritten by a pattern, from `search` and `replacement`.
@@ -311,11 +348,8 @@ pub mod __private {
             return crate::MASK.to_string();
         };
 
-        let Some(matched) = expression.find(value) else {
-            return crate::MASK.to_string();
-        };
-
-        if matched.start() != 0 || matched.end() != value.len() {
+        // The expression is anchored, so any match spans the whole value.
+        if !expression.is_match(value) {
             return crate::MASK.to_string();
         }
 
