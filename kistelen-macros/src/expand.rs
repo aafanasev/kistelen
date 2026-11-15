@@ -7,6 +7,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{Data, DeriveInput, Error, Field, Fields, Result, Variant};
 
 use crate::attr::{self, Mode, Secret};
@@ -133,7 +134,7 @@ fn struct_body(
 ) -> Result<TokenStream> {
     let blanket = attr::blanket(&input.attrs)?;
     let plans = plan(&data.fields, blanket.as_ref(), bounds)?;
-    let name = input.ident.to_string();
+    let name = input.ident.unraw().to_string();
 
     let accessors = data
         .fields
@@ -192,7 +193,7 @@ fn variant_arm(
     let plans = plan(&variant.fields, blanket, bounds)?;
 
     let variant_ident = &variant.ident;
-    let name = variant_ident.to_string();
+    let name = variant_ident.unraw().to_string();
 
     let accessors = plans
         .iter()
@@ -310,7 +311,7 @@ fn format_expression(name: &str, fields: &Fields, values: &[TokenStream]) -> Tok
             let names = named
                 .named
                 .iter()
-                .map(|field| field.ident.as_ref().unwrap().to_string());
+                .map(|field| field.ident.as_ref().unwrap().unraw().to_string());
 
             quote! {
                 formatter.debug_struct(#name)

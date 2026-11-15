@@ -160,3 +160,115 @@ fn the_mask_constant_matches_what_is_printed() {
 
     assert_eq!(format!("{item:?}"), format!("Item {{ value: {MASK} }}"));
 }
+
+// Raw identifiers must print without their `r#` prefix, exactly like the
+// standard derive. Each type has a `#[derive(Debug)]` twin with the same name
+// in a sibling module so the outputs can be compared verbatim.
+#[allow(non_camel_case_types)]
+mod raw {
+    pub mod ours {
+        use kistelen::Secret;
+
+        #[derive(Secret)]
+        pub struct r#match {
+            pub r#type: u8,
+            pub r#fn: &'static str,
+        }
+
+        #[derive(Secret)]
+        pub enum Token {
+            r#match { r#type: u8 },
+            r#loop(u8),
+            r#struct,
+        }
+
+        #[derive(Secret)]
+        pub struct Masked {
+            pub r#type: u8,
+            #[secret]
+            pub r#ref: &'static str,
+        }
+    }
+
+    pub mod standard {
+        #[derive(Debug)]
+        pub struct r#match {
+            pub r#type: u8,
+            pub r#fn: &'static str,
+        }
+
+        #[derive(Debug)]
+        pub enum Token {
+            r#match { r#type: u8 },
+            r#loop(u8),
+            r#struct,
+        }
+
+        #[derive(Debug)]
+        pub struct Masked {
+            pub r#type: u8,
+            pub r#ref: &'static str,
+        }
+    }
+}
+
+#[test]
+fn raw_identifier_struct_and_field_names_match_the_standard_derive() {
+    let ours = raw::ours::r#match {
+        r#type: 1,
+        r#fn: "f",
+    };
+    let standard = raw::standard::r#match {
+        r#type: 1,
+        r#fn: "f",
+    };
+
+    assert_eq!(format!("{ours:?}"), format!("{standard:?}"));
+    assert_eq!(format!("{ours:#?}"), format!("{standard:#?}"));
+    assert_eq!(format!("{ours:?}"), r#"match { type: 1, fn: "f" }"#);
+}
+
+#[test]
+fn raw_identifier_variant_names_match_the_standard_derive() {
+    let pairs = [
+        (
+            raw::ours::Token::r#match { r#type: 2 },
+            raw::standard::Token::r#match { r#type: 2 },
+        ),
+        (raw::ours::Token::r#loop(3), raw::standard::Token::r#loop(3)),
+        (raw::ours::Token::r#struct, raw::standard::Token::r#struct),
+    ];
+
+    for (ours, standard) in &pairs {
+        assert_eq!(format!("{ours:?}"), format!("{standard:?}"));
+        assert_eq!(format!("{ours:#?}"), format!("{standard:#?}"));
+    }
+    assert_eq!(format!("{:?}", pairs[0].0), "match { type: 2 }");
+}
+
+#[test]
+fn masked_raw_identifier_field_prints_its_unprefixed_name() {
+    let ours = raw::ours::Masked {
+        r#type: 4,
+        r#ref: "hunter2",
+    };
+    // The standard twin prints the real value; swapping it for the mask gives
+    // the expected output.
+    let standard = raw::standard::Masked {
+        r#type: 4,
+        r#ref: "hunter2",
+    };
+
+    assert_eq!(
+        format!("{ours:?}"),
+        format!("{standard:?}").replace(r#""hunter2""#, MASK),
+    );
+    assert_eq!(
+        format!("{ours:#?}"),
+        format!("{standard:#?}").replace(r#""hunter2""#, MASK),
+    );
+    assert_eq!(
+        format!("{ours:?}"),
+        format!("Masked {{ type: 4, ref: {MASK} }}")
+    );
+}
