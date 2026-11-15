@@ -109,3 +109,33 @@ fn replacement_applies_to_a_displayable_non_string_type() {
 
     assert_eq!(format!("{account:?}"), "Account { number: ****5678 }");
 }
+
+#[test]
+#[deny(non_snake_case)]
+fn enum_field_names_cannot_shadow_the_pattern_cache() {
+    #[derive(Secret)]
+    #[allow(non_snake_case)]
+    enum Contact {
+        Email {
+            __PATTERN0: u8,
+            #[secret(search = r"[^@]+@(.+)", replacement = "***@$1")]
+            formatter: String,
+        },
+        Pager(
+            #[secret(search = r"[^@]+@(.+)", replacement = "***@$1")] String,
+            u8,
+        ),
+    }
+
+    let email = Contact::Email {
+        __PATTERN0: 1,
+        formatter: "alice@example.com".to_string(),
+    };
+    let pager = Contact::Pager("bob@example.org".to_string(), 2);
+
+    assert_eq!(
+        format!("{email:?}"),
+        "Email { __PATTERN0: 1, formatter: ***@example.com }",
+    );
+    assert_eq!(format!("{pager:?}"), "Pager(***@example.org, 2)");
+}

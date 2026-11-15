@@ -7,6 +7,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{Data, DeriveInput, Error, Field, Fields, Result, Variant};
 
 use crate::attr::{self, Mode, Secret};
@@ -206,18 +207,25 @@ fn variant_arm(
     let body = format_fields(&name, &variant.fields, &plans, &accessors);
     let pattern = variant_pattern(enum_ident, variant, &plans);
 
+    // A binding derived from a field name the caller has allowed to break the
+    // naming convention (`userId`) would otherwise raise `non_snake_case` in
+    // their crate, where no `allow` on the enum reaches this impl.
     Ok(quote! {
+        #[allow(non_snake_case)]
         #pattern => { #body }
     })
 }
 
 /// The identifier a field's value is bound to inside a match pattern.
 ///
-/// Named fields reuse their own identifier so the pattern can use shorthand;
-/// tuple fields get a prefixed positional name that cannot collide with one.
+/// Every binding is prefixed so that no field name can shadow an identifier
+/// the generated body relies on, such as the `formatter` parameter or a
+/// `__PATTERN` cache. Named fields keep their own name after the prefix, with
+/// any `r#` dropped so the result is a plain identifier; tuple fields get a
+/// positional one.
 fn binding(field: &Field, index: usize) -> syn::Ident {
     match &field.ident {
-        Some(ident) => ident.clone(),
+        Some(ident) => format_ident!("__self_{}", ident.unraw()),
         None => format_ident!("__field{}", index),
     }
 }
@@ -228,15 +236,22 @@ fn variant_pattern(enum_ident: &syn::Ident, variant: &Variant, plans: &[Plan]) -
 
     match &variant.fields {
         Fields::Named(fields) => {
-            let entries = fields.named.iter().zip(plans).map(|(field, plan)| {
-                let ident = field.ident.as_ref().unwrap();
+            let entries =
+                fields
+                    .named
+                    .iter()
+                    .zip(plans)
+                    .enumerate()
+                    .map(|(index, (field, plan))| {
+                        let ident = field.ident.as_ref().unwrap();
 
-                if plan.reads_value() {
-                    quote!(#ident)
-                } else {
-                    quote!(#ident: _)
-                }
-            });
+                        if plan.reads_value() {
+                            let binding = binding(field, index);
+                            quote!(#ident: #binding)
+                        } else {
+                            quote!(#ident: _)
+                        }
+                    });
 
             quote!(#enum_ident::#variant_ident { #(#entries),* })
         }
