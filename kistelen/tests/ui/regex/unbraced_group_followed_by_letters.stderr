@@ -1,0 +1,5 @@
+error: `replacement` refers to group `1x` in `$1x`, which the pattern does not define; an unbraced reference takes every following letter, digit and `_` as its name, so write `${1}x` to follow group 1 with `x`
+ --> tests/ui/regex/unbraced_group_followed_by_letters.rs:5:5
+  |
+5 |     #[secret(search = r"(\d{2})(\d{2})", replacement = "$1x")]
+  |     ^

@@ -1,0 +1,5 @@
+error: `replacement` refers to group `nme` in `${nme}`, which the pattern does not define, so it would expand to nothing; the pattern has group 1, named `name`
+ --> tests/ui/regex/unknown_named_group.rs:5:5
+  |
+5 |     #[secret(search = r"(?P<name>\w+) \w+", replacement = "${nme} ***")]
+  |     ^

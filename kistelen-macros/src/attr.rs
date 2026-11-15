@@ -152,12 +152,15 @@ impl Secret {
 /// first line of output that needs them.
 #[cfg(feature = "regex")]
 fn validate_pattern(pattern: &str, replacement: &str, span: Span) -> Result<()> {
-    if let Err(error) = regex_syntax::Parser::new().parse(pattern) {
-        return Err(Error::new(
-            span,
-            format!("invalid `search` pattern: {error}"),
-        ));
-    }
+    let hir = match regex_syntax::Parser::new().parse(pattern) {
+        Ok(hir) => hir,
+        Err(error) => {
+            return Err(Error::new(
+                span,
+                format!("invalid `search` pattern: {error}"),
+            ));
+        }
+    };
 
     // The runtime compiles the pattern anchored to both ends of the value,
     // trying a second form with a newline that ends a trailing `(?x)` comment.
@@ -187,63 +190,180 @@ fn validate_pattern(pattern: &str, replacement: &str, span: Span) -> Result<()> 
         ));
     }
 
+    validate_group_references(&hir, replacement, span)
+}
+
+/// Rejects replacement references to groups the pattern does not have.
+///
+/// The regex crate expands such a reference to nothing rather than failing,
+/// so a typo would silently drop part of the output. A name that parses as a
+/// number is a group index; any other name is a named group.
+#[cfg(feature = "regex")]
+fn validate_group_references(
+    hir: &regex_syntax::hir::Hir,
+    replacement: &str,
+    span: Span,
+) -> Result<()> {
+    let groups =
+        regex_syntax::hir::visit(hir, Groups::default()).unwrap_or_else(|never| match never {});
+
+    for Reference { name, braced } in references(replacement) {
+        if groups.has(name) {
+            continue;
+        }
+
+        let written = if braced {
+            format!("${{{name}}}")
+        } else {
+            format!("${name}")
+        };
+
+        let digits = name.len() - name.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        let message = if !braced && digits > 0 && digits < name.len() {
+            let (index, tail) = name.split_at(digits);
+            format!(
+                "`replacement` refers to group `{name}` in `{written}`, which the pattern does not define; \
+                 an unbraced reference takes every following letter, digit and `_` as its name, \
+                 so write `${{{index}}}{tail}` to follow group {index} with `{tail}`"
+            )
+        } else {
+            format!(
+                "`replacement` refers to group `{name}` in `{written}`, which the pattern does not define, \
+                 so it would expand to nothing; the pattern has {}",
+                groups.describe(),
+            )
+        };
+
+        return Err(Error::new(span, message));
+    }
+
     Ok(())
 }
 
 /// Whether `replacement` refers to capture group 0, the whole match.
 ///
-/// Mirrors the regex crate's replacement syntax rather than searching for
-/// `$0`: the group name is parsed as a `usize`, so `${00}` and `${+0}` mean
-/// group 0 too, while `$$0` is an escaped `$` followed by a literal `0`.
+/// The group name is parsed as a `usize`, as the regex crate does, so `${00}`
+/// and `${+0}` mean group 0 too, while `$$0` is an escaped `$` followed by a
+/// literal `0`.
 #[cfg(feature = "regex")]
 fn refers_to_whole_match(replacement: &str) -> bool {
-    let bytes = replacement.as_bytes();
-    let mut i = 0;
+    references(replacement)
+        .iter()
+        .any(|reference| reference.name.parse::<usize>() == Ok(0))
+}
 
-    while i < bytes.len() {
-        if bytes[i] != b'$' {
-            i += 1;
+/// A group reference in a replacement string.
+#[cfg(feature = "regex")]
+struct Reference<'a> {
+    name: &'a str,
+    /// Written as `${name}` rather than `$name`.
+    braced: bool,
+}
+
+/// The group references in `replacement`, read as the regex crate reads them.
+///
+/// Both replacement checks go through this one scan, so they cannot disagree
+/// about what a replacement refers to. It mirrors the crate's interpolation
+/// rules: `$$` is a literal `$`; `${name}` runs to the closing brace, and an
+/// unclosed brace leaves a literal `$`; an unbraced `$name` is the longest run
+/// of `[_0-9a-zA-Z]`, and an empty run leaves a literal `$`.
+#[cfg(feature = "regex")]
+fn references(replacement: &str) -> Vec<Reference<'_>> {
+    let mut found = Vec::new();
+    let mut rest = replacement;
+
+    while let Some(position) = rest.find('$') {
+        rest = &rest[position + 1..];
+
+        if let Some(after) = rest.strip_prefix('$') {
+            rest = after;
             continue;
         }
 
-        // `$$` is an escaped, literal `$`.
-        if bytes.get(i + 1) == Some(&b'$') {
-            i += 2;
-            continue;
-        }
-
-        let name = if bytes.get(i + 1) == Some(&b'{') {
-            // `${name}` runs to the next `}`; without one, the `$` is literal.
-            let start = i + 2;
-            match bytes[start..].iter().position(|&b| b == b'}') {
-                Some(length) => {
-                    i = start + length + 1;
-                    &replacement[start..start + length]
-                }
-                None => {
-                    i += 1;
-                    continue;
-                }
+        if let Some(after) = rest.strip_prefix('{') {
+            if let Some(end) = after.find('}') {
+                found.push(Reference {
+                    name: &after[..end],
+                    braced: true,
+                });
+                rest = &after[end + 1..];
             }
-        } else {
-            // `$name` is the longest run of `[_0-9a-zA-Z]`.
-            let start = i + 1;
-            let length = bytes[start..]
-                .iter()
-                .take_while(|&&b| b == b'_' || b.is_ascii_alphanumeric())
-                .count();
-            i = start + length;
-            &replacement[start..start + length]
-        };
 
-        // An empty name leaves the `$` literal or refers to no group; either
-        // way it does not parse as a number.
-        if name.parse::<usize>() == Ok(0) {
-            return true;
+            continue;
+        }
+
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(rest.len());
+
+        if end > 0 {
+            found.push(Reference {
+                name: &rest[..end],
+                braced: false,
+            });
+            rest = &rest[end..];
         }
     }
 
-    false
+    found
+}
+
+/// The capture groups a pattern defines, as replacement references see them.
+#[cfg(feature = "regex")]
+#[derive(Default)]
+struct Groups {
+    /// The highest explicit group index; group 0 is the whole match and is
+    /// always present.
+    count: u32,
+    names: Vec<String>,
+}
+
+#[cfg(feature = "regex")]
+impl Groups {
+    fn has(&self, name: &str) -> bool {
+        match name.parse::<usize>() {
+            Ok(index) => index <= self.count as usize,
+            Err(_) => self.names.iter().any(|known| known == name),
+        }
+    }
+
+    fn describe(&self) -> String {
+        let numbered = match self.count {
+            0 => "no capture groups".to_string(),
+            1 => "group 1".to_string(),
+            2 => "groups 1 and 2".to_string(),
+            count => format!("groups 1 to {count}"),
+        };
+
+        if self.names.is_empty() {
+            numbered
+        } else {
+            let names: Vec<String> = self.names.iter().map(|name| format!("`{name}`")).collect();
+            format!("{numbered}, named {}", names.join(", "))
+        }
+    }
+}
+
+#[cfg(feature = "regex")]
+impl regex_syntax::hir::Visitor for Groups {
+    type Output = Self;
+    type Err = std::convert::Infallible;
+
+    fn finish(self) -> std::result::Result<Self, Self::Err> {
+        Ok(self)
+    }
+
+    fn visit_pre(&mut self, hir: &regex_syntax::hir::Hir) -> std::result::Result<(), Self::Err> {
+        if let regex_syntax::hir::HirKind::Capture(capture) = hir.kind() {
+            self.count = self.count.max(capture.index);
+
+            if let Some(name) = &capture.name {
+                self.names.push(name.to_string());
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(not(feature = "regex"))]

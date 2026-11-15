@@ -1,0 +1,5 @@
+error: `replacement` refers to group `3` in `$3`, which the pattern does not define, so it would expand to nothing; the pattern has groups 1 and 2
+ --> tests/ui/regex/group_index_out_of_range.rs:5:5
+  |
+5 |     #[secret(search = r"(\d{2})(\d{2})", replacement = "$3")]
+  |     ^
